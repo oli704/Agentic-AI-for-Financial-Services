@@ -165,7 +165,7 @@ cp .env.template .env
 **4. Configure your OpenAI API key:**
 ```bash
 # Edit .env file and add:
-OPENAI_API_KEY=your_actual_api_key_here
+OPENAI_API_KEY=voc-62787499117578256732026aedf382c0b8f6.70645548
 ```
 
 **5. Verify installation:**
