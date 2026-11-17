@@ -1,6 +1,4 @@
 # Foundation SAR - Core Data Schemas and Utilities
-# TODO: Implement core Pydantic schemas and data processing utilities
-
 """
 This module contains the foundational components for SAR processing:
 
@@ -26,139 +24,107 @@ YOUR TASKS:
 
 import json
 import pandas as pd
-from datetime import datetime, timezone
-from typing import Dict, List, Optional, Any, Literal
-from pydantic import BaseModel, Field, field_validator
+from datetime import datetime, timezone, date
+from typing import Dict, List, Optional, Any, Literal, Annotated
+from pydantic import BaseModel, Field, field_validator, AfterValidator, StringConstraints, model_validator
 import uuid
 import os
 
 # ===== TODO: IMPLEMENT PYDANTIC SCHEMAS =====
 
-class CustomerData(BaseModel):
-    """Customer information schema with validation
-    
-    REQUIRED FIELDS (examine data/customers.csv):
-    - customer_id: str = Unique identifier like "CUST_0001"
-    - name: str = Full customer name like "John Smith"
-    - date_of_birth: str = Date in YYYY-MM-DD format like "1985-03-15"
-    - ssn_last_4: str = Last 4 digits like "1234"
-    - address: str = Full address like "123 Main St, City, ST 12345"
-    - customer_since: str = Date in YYYY-MM-DD format like "2010-01-15"
-    - risk_rating: Literal['Low', 'Medium', 'High'] = Risk assessment
-    
-    OPTIONAL FIELDS:
-    - phone: Optional[str] = Phone number like "555-123-4567"
-    - occupation: Optional[str] = Job title like "Software Engineer"
-    - annual_income: Optional[int] = Yearly income like 75000
-    
-    HINT: Use Field(..., description="...") for required fields
-    HINT: Use Field(None, description="...") for optional fields
-    HINT: Use Literal type for risk_rating to restrict values
-    """
-    # TODO: Implement the CustomerData schema with proper fields and validation
-    pass
+def _not_in_future(v: date) -> date:
+    """Validator to ensure date is not in the future"""
+    if v > date.today():
+        raise ValueError("Date cannot be in the future")
+    return v
 
+PastOrTodayDate = Annotated[date, AfterValidator(_not_in_future)]
+
+def _max_words(limit: int):
+    def check(v: str) -> str:
+        if len(v.split()) > limit:
+            raise ValueError(f"Must be {limit} words or fewer")
+        return v
+    return AfterValidator(check)
+
+Narrative = Annotated[str, _max_words(200)]
+
+class CustomerData(BaseModel):
+    customer_id: str = Field(..., description="Unique identifier for the customer")
+    name: str = Field(..., description="Customer name")
+    date_of_birth: PastOrTodayDate = Field(..., description="Customer's date of birth YYYY-MM-DD")
+    ssn_last_4: Annotated[str, StringConstraints(pattern=r"^\d{4}$")] = Field(
+        repr=False,  # keeps it out of repr/logs
+        description="Last 4 digits of SSN")
+    address: str = Field(..., description="Customer's address")
+    phone: Optional[Annotated[str, StringConstraints(pattern=r"^\+?[\d\s().-]{7,20}(?:\s*(?:x|ext\.?)\s*\d{1,6})?$")]] = Field(None,
+        description="Customer's phone number; digits with optional spaces, dots, dashes, brackets, leading + and extension (e.g. 555-123-4567 x89)")
+    customer_since: PastOrTodayDate = Field(..., description="Date when the customer joined YYYY-MM-DD")
+    risk_rating: Literal["Low", "Medium", "High"] = Field(..., description="Customer's risk rating (Low, Medium, High)")
+    occupation: Optional[str] = Field(None, description="Customer's occupation")
+    annual_income: Optional[float] = Field(None, ge=0, description="Customer's annual income in USD")
+        
 class AccountData(BaseModel):
-    """Account information schema with validation
-    
-    REQUIRED FIELDS (examine data/accounts.csv):
-    - account_id: str = Unique identifier like "CUST_0001_ACC_1"
-    - customer_id: str = Must match CustomerData.customer_id
-    - account_type: str = Type like "Checking", "Savings", "Money_Market"
-    - opening_date: str = Date in YYYY-MM-DD format
-    - current_balance: float = Current balance (can be negative)
-    - average_monthly_balance: float = Average balance
-    - status: str = Status like "Active", "Closed", "Suspended"
-    
-    HINT: All fields are required for account data
-    HINT: Use float for monetary amounts
-    HINT: current_balance can be negative for overdrafts
-    """
-    # TODO: Implement the AccountData schema
-    pass
+    account_id: str = Field(..., description="Unique identifier for the account")
+    customer_id: str = Field(...,json_schema_extra={"references": "CustomerData.customer_id"} ,description="Customer ID associated with the account. Must match CustomerData.customer_id")
+    account_type: Literal["Checking", "Savings", "Money_Market", "Business_Checking"] = Field(..., description="Type of account (Checking, Savings, Money_Market, Business_Checking)")   
+    opening_date: PastOrTodayDate = Field(..., description="Date when the account was opened YYYY-MM-DD")
+    current_balance: float = Field(..., description="Current balance of the account (can be negative for overdrafts)")
+    average_monthly_balance: float = Field(..., description="Average monthly balance of the account")
+    status: Literal["Active", "Closed", "Suspended"] = Field(..., description="Status of the account (Active, Closed, Suspended)")
 
 class TransactionData(BaseModel):
-    """Transaction information schema with validation
-    
-    REQUIRED FIELDS (examine data/transactions.csv):
-    - transaction_id: str = Unique identifier like "TXN_B24455F3"
-    - account_id: str = Must match AccountData.account_id
-    - transaction_date: str = Date in YYYY-MM-DD format
-    - transaction_type: str = Type like "Cash_Deposit", "Wire_Transfer"
-    - amount: float = Transaction amount (negative for withdrawals)
-    - description: str = Description like "Cash deposit at branch"
-    - method: str = Method like "Wire", "ACH", "ATM", "Teller"
-    
-    OPTIONAL FIELDS:
-    - counterparty: Optional[str] = Other party in transaction
-    - location: Optional[str] = Transaction location or branch
-    
-    HINT: amount can be negative for debits/withdrawals
-    HINT: Use descriptive field descriptions for clarity
-    """
-    # TODO: Implement the TransactionData schema
-    pass
+    transaction_id: str = Field(..., description="Unique identifier for the transaction")
+    account_id: str = Field(..., description="Account ID associated with the transaction. Must match AccountData.account_id")
+    transaction_date: PastOrTodayDate = Field(..., description="Date of the transaction YYYY-MM-DD")
+    transaction_type: Literal[
+    "Online_Transfer", "ACH_Debit", "ACH_Credit", "ATM_Withdrawal",
+    "Wire_Transfer", "Direct_Deposit", "Check_Deposit", "Debit_Purchase",
+    "Cash_Deposit", "Wire_Transfer_Debit", "Cash_Withdrawal", "Wire_Transfer_Credit","Deposit"] = Field(..., description="Type of transaction, e.g. Online_Transfer, ACH_Debit, Wire_Transfer, Cash_Deposit")
+    amount: float = Field(..., description="Amount of the transaction")
+    description: str = Field(..., description="Description of the transaction, e.g. 'Cash deposit at branch'")
+    method: Literal["Electronic","ATM","Online","Mobile","Branch","Cash","Wire","ACH"] = Field(..., description="Method of the transaction")
+    counterparty: Optional[str] = Field(None, description="Counterparty involved in the transaction, if applicable")
+    location: Optional[str] = Field(None, description="Location or branch where the transaction occurred")
 
 class CaseData(BaseModel):
-    """Unified case object combining all data sources
-    
-    REQUIRED FIELDS:
-    - case_id: str = Unique case identifier (generate with uuid)
-    - customer: CustomerData = Customer information object
-    - accounts: List[AccountData] = List of customer's accounts
-    - transactions: List[TransactionData] = List of suspicious transactions
-    - case_created_at: str = ISO timestamp when case was created
-    - data_sources: Dict[str, str] = Source tracking with keys like:
-      * "customer_source": "csv_extract_20241219"
-      * "account_source": "csv_extract_20241219" 
-      * "transaction_source": "csv_extract_20241219"
-    
-    VALIDATION RULES:
-    - transactions list cannot be empty (use @field_validator)
-    - All accounts should belong to the same customer
-    - All transactions should belong to accounts in the case
-    
-    HINT: Use @field_validator('transactions') with @classmethod decorator
-    HINT: Check if not v: raise ValueError("message") for empty validation
-    """
-    # TODO: Implement the CaseData schema with validation
-    pass
+    case_id: str = Field(..., description="Unique case identifier (generate with uuid)")
+    customer: CustomerData = Field(..., description="Customer information object")
+    accounts: List[AccountData] = Field(..., description="List of customer's accounts")
+    transactions: List[TransactionData] = Field(..., description="List of suspicious transactions")
+    case_created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc)) #better than string because it can be validated and sorted
+    data_sources: Dict[str, str] = Field(..., description="Source tracking with keys like 'customer_source', 'account_source', 'transaction_source'")
+
+    #validations
+
+    @field_validator('transactions')
+    @classmethod
+    def transactions_not_empty(cls, v: List[TransactionData]) -> List[TransactionData]:
+        if not v:
+            raise ValueError("Transactions list cannot be empty")
+        return v
+
+    @model_validator(mode="after")
+    def check_case_links(self):
+        if any(a.customer_id != self.customer.customer_id for a in self.accounts):
+            raise ValueError("All accounts must belong to the case's customer")
+        account_ids = {a.account_id for a in self.accounts}
+        if any(t.account_id not in account_ids for t in self.transactions):
+            raise ValueError("All transactions must belong to accounts in the case")
+        return self
 
 class RiskAnalystOutput(BaseModel):
-    """Risk Analyst agent structured output
-    
-    REQUIRED FIELDS (for Chain-of-Thought agent output):
-    - classification: Literal['Structuring', 'Sanctions', 'Fraud', 'Money_Laundering', 'Other']
-    - confidence_score: float = Confidence between 0.0 and 1.0 (use ge=0.0, le=1.0)
-    - reasoning: str = Step-by-step analysis reasoning (max 500 chars)
-    - key_indicators: List[str] = List of suspicious indicators found
-    - risk_level: Literal['Low', 'Medium', 'High', 'Critical'] = Risk assessment
-    
-    HINT: Use Literal types to restrict classification and risk_level values
-    HINT: Use Field(..., ge=0.0, le=1.0) for confidence_score validation
-    HINT: Use Field(..., max_length=500) for reasoning length limit
-    """
-    # TODO: Implement the RiskAnalystOutput schema
-    pass
+    classification: Literal['Structuring', 'Sanctions', 'Fraud', 'Money_Laundering', 'Other'] = Field(..., description="Risk classification")
+    confidence_score: float = Field(..., ge=0.0, le=1.0, description="Confidence score between 0.0 and 1.0")
+    reasoning: str = Field(..., max_length=500, description="Step-by-step analysis reasoning (max 500 chars)")
+    key_indicators: List[str] = Field(..., description="List of suspicious indicators found")
+    risk_level: Literal['Low', 'Medium', 'High', 'Critical'] = Field(..., description="Risk assessment level")
 
 class ComplianceOfficerOutput(BaseModel):
-    """Compliance Officer agent structured output
-    
-    REQUIRED FIELDS (for ReACT agent output):
-    - narrative: str = Regulatory narrative text (max 1000 chars for ≤200 words)
-    - narrative_reasoning: str = Reasoning for narrative construction (max 500 chars)
-    - regulatory_citations: List[str] = List of relevant regulations like:
-      * "31 CFR 1020.320 (BSA)"
-      * "12 CFR 21.11 (SAR Filing)"
-      * "FinCEN SAR Instructions"
-    - completeness_check: bool = Whether narrative meets all requirements
-    
-    HINT: Use Field(..., max_length=1000) for narrative length limit
-    HINT: Use Field(..., max_length=500) for reasoning length limit
-    HINT: Use bool type for completeness_check
-    """
-    # TODO: Implement the ComplianceOfficerOutput schema
-    pass
+    narrative: Narrative = Field(..., max_length=1000, description="Regulatory narrative text (max 1000 chars for ≤200 words)")
+    narrative_reasoning: str = Field(..., max_length=500, description="Reasoning for narrative construction (max 500 chars)")
+    regulatory_citations: List[str] = Field(..., description="List of relevant regulations like: '31 CFR 1020.320 (BSA)', '12 CFR 21.11 (SAR Filing)', 'FinCEN SAR Instructions'")
+    completeness_check: bool = Field(..., description="Whether narrative meets all requirements")
 
 # ===== TODO: IMPLEMENT AUDIT LOGGING =====
 
@@ -193,7 +159,8 @@ class ExplainabilityLogger:
     
     def __init__(self, log_file: str = "sar_audit.jsonl"):
         # TODO: Initialize with log_file path and empty entries list
-        pass
+        self.log_file = log_file
+        self.entries = []
     
     def log_agent_action(self, agent_type: str, action: str, case_id: str, 
                         input_data: Dict, output_data: Dict, reasoning: str, 
@@ -210,10 +177,20 @@ class ExplainabilityLogger:
         HINT: Use datetime.now(timezone.utc).isoformat() for timestamp
         HINT: Convert input_data and output_data to strings with str()
         """
-        # TODO: Implement logging with structured entry creation and file writing
-        pass
-
-# ===== TODO: IMPLEMENT DATA LOADER =====
+        entry ={'timestamp': datetime.now(timezone.utc).isoformat(),
+                'case_id': case_id,
+                'agent_type': agent_type,  # "DataLoader", "RiskAnalyst", "ComplianceOfficer"
+                'action': action,          # "create_case", "analyze_case", "generate_narrative"
+                'input_summary': str(input_data),
+                'output_summary': str(output_data),
+                'reasoning': reasoning,
+                'execution_time_ms': execution_time_ms,
+                'success': success,        # True/False
+                'error_message': error_message  # None if success=True
+            }
+        self.entries.append(entry)
+        with open(self.log_file,'a') as f:
+            f.write(json.dumps(entry)+'\n')
 
 class DataLoader:
     """Simple loader that creates case objects from CSV data
@@ -238,49 +215,52 @@ class DataLoader:
     """
     
     def __init__(self, explainability_logger: ExplainabilityLogger):
-        # TODO: Store logger for audit trail
-        pass
+        self.logger = explainability_logger
     
     def create_case_from_data(self, 
                             customer_data: Dict,
                             account_data: List[Dict],
                             transaction_data: List[Dict]) -> CaseData:
-        """Create a unified case object from fragmented AML data
-
-        SUGGESTED STEPS:
-        1. Record start time for performance tracking
-        2. Generate unique case_id using uuid.uuid4()
-        3. Create CustomerData object from customer_data dictionary
-        4. Filter account_data list for accounts belonging to this customer
-        5. Create AccountData objects from filtered accounts
-        6. Get set of account_ids from customer's accounts
-        7. Filter transaction_data for transactions in customer's accounts
-        8. Create TransactionData objects from filtered transactions  
-        9. Create CaseData object combining all components
-        10. Add case metadata (case_id, timestamp, data_sources)
-        11. Calculate execution time in milliseconds
-        12. Log operation with success/failure status
-        13. Return CaseData object
+        start_time = datetime.now(timezone.utc)
+        case_id = str(uuid.uuid4())
+        try:
+            customer = CustomerData(**customer_data)
+            accounts = [AccountData(**acc) for acc in account_data if acc['customer_id'] == customer.customer_id]
+            account_ids = {acc.account_id for acc in accounts}
+            transactions = [TransactionData(**txn) for txn in transaction_data if txn['account_id'] in account_ids]
+            case = CaseData(
+                case_id=case_id,
+                customer=customer,
+                accounts=accounts,
+                transactions=transactions,
+                case_created_at=start_time,
+                data_sources={
+                    'customer_source': f"csv_extract_{start_time.strftime('%Y%m%d')}",
+                    'account_source': f"csv_extract_{start_time.strftime('%Y%m%d')}",
+                    'transaction_source': f"csv_extract_{start_time.strftime('%Y%m%d')}"
+                })
+            self.logger.log_agent_action(agent_type="DataLoader",
+                                         input_data={"accounts":len(account_data),"transactions":len(transaction_data)},
+                                         output_data={"accounts":len(accounts),"transactions":len(transactions)},
+                                         reasoning="Case creation successful",
+                                         action="create_case",
+                                         error_message=None,
+                                         success=True,
+                                         case_id=case_id,
+                                         execution_time_ms=(datetime.now(timezone.utc) - start_time).total_seconds() * 1000)
+        except Exception as e:
+            self.logger.log_agent_action(agent_type="DataLoader",
+                                         input_data={"accounts":len(account_data),"transactions":len(transaction_data)},
+                                         output_data={},
+                                         reasoning="Case creation failed",
+                                         action="create_case",
+                                         error_message=str(e),
+                                         success=False,
+                                         case_id=case_id,
+                                         execution_time_ms=(datetime.now(timezone.utc) - start_time).total_seconds() * 1000)
+            raise
+        return case
         
-        ERROR HANDLING:
-        - Wrap in try/except block
-        - Log failures with error message
-        - Re-raise exceptions for caller
-        
-        DATA_SOURCES FORMAT:
-        {
-            'customer_source': f"csv_extract_{datetime.now().strftime('%Y%m%d')}",
-            'account_source': f"csv_extract_{datetime.now().strftime('%Y%m%d')}",
-            'transaction_source': f"csv_extract_{datetime.now().strftime('%Y%m%d')}"
-        }
-        
-        HINT: Use list comprehensions for filtering
-        HINT: Use set comprehension for account_ids: {acc.account_id for acc in accounts}
-        HINT: Use datetime.now(timezone.utc).isoformat() for timestamps
-        HINT: Calculate execution_time_ms = (datetime.now() - start_time).total_seconds() * 1000
-        """
-        # TODO: Implement complete case creation with error handling and logging
-        pass
 
 # ===== HELPER FUNCTIONS (PROVIDED) =====
 
