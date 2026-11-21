@@ -1,6 +1,4 @@
 # Risk Analyst Agent - Chain-of-Thought Implementation
-# TODO: Implement Risk Analyst Agent using Chain-of-Thought prompting
-
 """
 Risk Analyst Agent Module
 
@@ -21,11 +19,18 @@ import openai
 from datetime import datetime
 from typing import Dict, Any, List
 from dotenv import load_dotenv
-from foundation_sar import (
-    RiskAnalystOutput,
-    ExplainabilityLogger,
-    CaseData
-)
+try:
+    from foundation_sar import (
+        RiskAnalystOutput,
+        ExplainabilityLogger,
+        CaseData
+    )
+except ImportError:  # imported as part of the `src` package (e.g. by pytest)
+    from .foundation_sar import (
+        RiskAnalystOutput,
+        ExplainabilityLogger,
+        CaseData
+    )
 
 # Load environment variables
 load_dotenv()
@@ -69,7 +74,7 @@ Analyze each case by thinking step by step through this framework:
 3. **Regulatory Mapping**: Consider which regulations or typologies the patterns
    relate to (e.g. BSA/CTR thresholds, structuring, OFAC sanctions, fraud typologies).
 4. **Risk Quantification**: Judge severity and your confidence based on the strength
-   and number of indicators.
+and number of indicators.
 5. **Classification Decision**: Choose the single best-fitting category.
 
 Classification must be exactly one of:
@@ -99,20 +104,56 @@ a low confidence score and risk level rather than overstating the risk."""
         - Handles errors and logs operations
         - Returns validated RiskAnalystOutput
         """
-        pass
+        start_time = datetime.now()
+        user_prompt = None
+        data = None
+        try:
+            system_prompt = self.system_prompt
+            user_prompt = self._format_case_for_prompt(case_data)
+            llm_response = self.client.chat.completions.create(
+                model=self.model,
+                messages=[
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": user_prompt}
+                ],
+                temperature=0.2,
+                max_tokens=600
+            )
+            response_content = llm_response.choices[0].message.content
+            json_from_response = self._extract_json_from_response(response_content)
+            data = json.loads(json_from_response)
+            result = RiskAnalystOutput(**data)
+            self.explainability_logger.log_agent_action( #log success for audit
+                agent_type="RiskAnalyst",
+                action="analyze_case",
+                case_id=case_data.case_id,
+                input_data=user_prompt,
+                output_data=data,
+                reasoning=result.reasoning,
+                execution_time_ms=(datetime.now() - start_time).total_seconds() * 1000,
+                success=True,
+                error_message=None
+            )
+            return result
+        except Exception as e:
+            self.explainability_logger.log_agent_action( #log failure for audit
+                agent_type="RiskAnalyst",
+                action="analyze_case",
+                case_id=case_data.case_id,
+                input_data=user_prompt,
+                output_data=data or {},
+                reasoning="Analysis failed",
+                execution_time_ms=(datetime.now() - start_time).total_seconds() * 1000,
+                success=False,
+                error_message=str(e)
+            )
+            raise
 
     def _extract_json_from_response(self, response_content: str) -> str:
-        """Extract JSON content from LLM response
-
-        TODO: Implement JSON extraction that handles:
-        - JSON in code blocks (```json)
-        - JSON in plain text
-        - Malformed responses
-        - Empty responses
-        """
+        """Extract JSON content from LLM response"""
         if response_content is None or response_content.strip() == "": #if there's nothing there, show error
             raise ValueError("LLM response is empty. No content to extract.")
-        if "```json" in response_content: #if there's ('''json) return inside the fence
+        if "```json" in response_content: #if there's ('''json), return inside the fence
             start = response_content.find("```json") + len("```json")
             end = response_content.find("```", start)
             json_str = response_content[start:end].strip()
@@ -125,6 +166,7 @@ a low confidence score and risk level rather than overstating the risk."""
         return json_str
 
     def _format_case_for_prompt(self, case_data) -> str:
+        """Format case data for inclusion in the LLM prompt"""
         lines = []
         lines.append("Customer Profile:")
         lines.append(f"- Name: {case_data.customer.name}")
@@ -136,7 +178,7 @@ a low confidence score and risk level rather than overstating the risk."""
             lines.append(f"- Status: {account.status}")
             lines.append(f"- Balance: ${account.current_balance:.2f}")
             lines.append(f"- Opening Date: {account.opening_date}")
-            lines.append("\n")
+            lines.append("")
         lines.append("Transaction Details:")
         for txn in case_data.transactions:
             lines.append(f"- {txn.transaction_date}: {txn.transaction_type} of ${txn.amount:.2f} to {txn.counterparty}")
@@ -146,8 +188,7 @@ a low confidence score and risk level rather than overstating the risk."""
         lines.append(f"- Average Transaction Amount: ${sum(txn.amount for txn in case_data.transactions)/len(case_data.transactions):.2f}")
         return "\n".join(lines)
 
-# ===== PROMPT ENGINEERING HELPERS =====
-
+ # ===== PROMPT ENGINEERING HELPERS =====
 
 def create_chain_of_thought_framework():
     """Helper function showing Chain-of-Thought structure
@@ -186,12 +227,6 @@ def get_classification_categories():
 
 def test_agent_with_sample_case():
     """Test the agent with a sample case
-
-    TODO: Use this function to test your implementation:
-    - Create sample case data
-    - Initialize agent
-    - Run analysis
-    - Validate results
     """
     print("🧪 Testing Risk Analyst Agent")
     print("TODO: Implement test case")
