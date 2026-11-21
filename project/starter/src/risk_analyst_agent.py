@@ -56,11 +56,11 @@ class RiskAnalystAgent:
             model: OpenAI model to use
         """
         self.client = openai_client
-        self.explainability_logger = explainability_logger
+        self.logger = explainability_logger
         self.model = model
 
         # Chain-of-Thought system prompt
-        self.system_prompt = """You are a senior financial crimes analyst with 15 years of
+        self.system_prompt = """You are a senior Financial Crime Risk Analyst with 15 years of
 experience in AML/BSA compliance, transaction monitoring, and SAR investigations.
 You review cases objectively and rely only on the evidence provided.
 
@@ -107,6 +107,7 @@ a low confidence score and risk level rather than overstating the risk."""
         start_time = datetime.now()
         user_prompt = None
         data = None
+        failure_reason = "Analysis failed"
         try:
             system_prompt = self.system_prompt
             user_prompt = self._format_case_for_prompt(case_data)
@@ -120,10 +121,14 @@ a low confidence score and risk level rather than overstating the risk."""
                 max_tokens=600
             )
             response_content = llm_response.choices[0].message.content
-            json_from_response = self._extract_json_from_response(response_content)
-            data = json.loads(json_from_response)
+            try:
+                json_from_response = self._extract_json_from_response(response_content)
+                data = json.loads(json_from_response)
+            except ValueError as parse_error:  # includes json.JSONDecodeError
+                failure_reason = "JSON parsing failed"
+                raise ValueError(f"Failed to parse Risk Analyst JSON output: {parse_error}") from parse_error
             result = RiskAnalystOutput(**data)
-            self.explainability_logger.log_agent_action( #log success for audit
+            self.logger.log_agent_action( #log success for audit
                 agent_type="RiskAnalyst",
                 action="analyze_case",
                 case_id=case_data.case_id,
@@ -136,13 +141,13 @@ a low confidence score and risk level rather than overstating the risk."""
             )
             return result
         except Exception as e:
-            self.explainability_logger.log_agent_action( #log failure for audit
+            self.logger.log_agent_action( #log failure for audit
                 agent_type="RiskAnalyst",
                 action="analyze_case",
                 case_id=case_data.case_id,
                 input_data=user_prompt,
                 output_data=data or {},
-                reasoning="Analysis failed",
+                reasoning=failure_reason,
                 execution_time_ms=(datetime.now() - start_time).total_seconds() * 1000,
                 success=False,
                 error_message=str(e)
@@ -152,7 +157,7 @@ a low confidence score and risk level rather than overstating the risk."""
     def _extract_json_from_response(self, response_content: str) -> str:
         """Extract JSON content from LLM response"""
         if response_content is None or response_content.strip() == "": #if there's nothing there, show error
-            raise ValueError("LLM response is empty. No content to extract.")
+            raise ValueError("No JSON content found: LLM response is empty.")
         if "```json" in response_content: #if there's ('''json), return inside the fence
             start = response_content.find("```json") + len("```json")
             end = response_content.find("```", start)
@@ -161,31 +166,54 @@ a low confidence score and risk level rather than overstating the risk."""
             start = response_content.find("{")
             end = response_content.rfind("}")
             if start == -1 or end == -1: #unless there's no JSON at all, then raise error
-                raise ValueError("No JSON object found in LLM response.")
+                raise ValueError("No JSON content found in LLM response.")
             json_str = response_content[start:end + 1]
         return json_str
 
-    def _format_case_for_prompt(self, case_data) -> str:
-        """Format case data for inclusion in the LLM prompt"""
+    def _format_accounts(self, accounts) -> str:
+        """Format account data for inclusion in the LLM prompt"""
         lines = []
-        lines.append("Customer Profile:")
-        lines.append(f"- Name: {case_data.customer.name}")
-        lines.append(f"- Date of Birth: {case_data.customer.date_of_birth}")
-        lines.append("Account Information:")
-        for account in case_data.accounts:
+        for account in accounts:
             lines.append(f"- Account Number: {account.account_id}")
             lines.append(f"- Account Type: {account.account_type}")
             lines.append(f"- Status: {account.status}")
-            lines.append(f"- Balance: ${account.current_balance:.2f}")
+            lines.append(f"- Balance: ${account.current_balance:,.2f}")
             lines.append(f"- Opening Date: {account.opening_date}")
             lines.append("")
-        lines.append("Transaction Details:")
-        for txn in case_data.transactions:
-            lines.append(f"- {txn.transaction_date}: {txn.transaction_type} of ${txn.amount:.2f} to {txn.counterparty}")
-        lines.append("Financial Summary Statistics:")
-        lines.append(f"- Total Transactions: {len(case_data.transactions)}")
-        lines.append(f"- Total Transaction Amount: ${sum(txn.amount for txn in case_data.transactions):.2f}")
-        lines.append(f"- Average Transaction Amount: ${sum(txn.amount for txn in case_data.transactions)/len(case_data.transactions):.2f}")
+        return "\n".join(lines)
+
+    def _format_transactions(self, transactions) -> str:
+        """Format transaction data for inclusion in the LLM prompt"""
+        lines = []
+        for i, txn in enumerate(transactions, 1):
+            line = f"{i}. {txn.transaction_date}: {txn.transaction_type} ${txn.amount:,.2f}"
+            if txn.counterparty:
+                line += f" to {txn.counterparty}"
+            if txn.description:
+                line += f" - {txn.description}"
+            if txn.location:
+                line += f" (Location: {txn.location})"
+            lines.append(line)
+        return "\n".join(lines)
+
+    def _format_case_for_prompt(self, case_data) -> str:
+        """Format case data for inclusion in the LLM prompt"""
+        transactions = case_data.transactions
+        total = sum(txn.amount for txn in transactions)
+        average = total / len(transactions) if transactions else 0.0
+        lines = [
+            "Customer Profile:",
+            f"- Name: {case_data.customer.name}",
+            f"- Date of Birth: {case_data.customer.date_of_birth}",
+            "Account Information:",
+            self._format_accounts(case_data.accounts),
+            "Transaction Details:",
+            self._format_transactions(transactions),
+            "Financial Summary Statistics:",
+            f"- Total Transactions: {len(transactions)}",
+            f"- Total Transaction Amount: ${total:,.2f}",
+            f"- Average Transaction Amount: ${average:,.2f}",
+        ]
         return "\n".join(lines)
 
  # ===== PROMPT ENGINEERING HELPERS =====
