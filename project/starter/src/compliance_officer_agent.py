@@ -17,18 +17,26 @@ YOUR TASKS:
 """
 
 import json
+import re
 import openai
 from datetime import datetime
 from typing import Dict, Any, List
 from dotenv import load_dotenv
 
-# TODO: Import your foundation components
-# from foundation_sar import (
-#     ComplianceOfficerOutput,
-#     ExplainabilityLogger, 
-#     CaseData,
-#     RiskAnalystOutput
-# )
+try:
+    from foundation_sar import (
+        ComplianceOfficerOutput,
+        ExplainabilityLogger,
+        CaseData,
+        RiskAnalystOutput
+    )
+except ImportError:  # imported as part of the `src` package (e.g. by pytest)
+    from .foundation_sar import (
+        ComplianceOfficerOutput,
+        ExplainabilityLogger,
+        CaseData,
+        RiskAnalystOutput
+    )
 
 # Load environment variables
 load_dotenv()
@@ -53,20 +61,54 @@ class ComplianceOfficerAgent:
             explainability_logger: Logger for audit trails
             model: OpenAI model to use
         """
-        # TODO: Initialize agent components
-        pass
-        
-        # TODO: Design ReACT system prompt
-        self.system_prompt = """TODO: Create your ReACT system prompt here
-        
-        Key elements to include:
-        - Agent persona as senior compliance officer
-        - ReACT framework: Reasoning Phase + Action Phase
-        - Narrative constraints (≤120 words)
-        - Regulatory terminology requirements
-        - JSON output format specification
-        - BSA/AML compliance focus
-        """
+        self.client = openai_client
+        self.logger = explainability_logger
+        self.model = model
+        self.system_prompt = """You are a senior BSA/AML Compliance Officer with 15 years of
+experience writing Suspicious Activity Report (SAR) narratives for FinCEN submission.
+You write precise, factual, regulator-ready narratives and rely only on the evidence
+provided by the case data and the Risk Analyst's findings.
+
+Work using the ReACT (Reasoning + Action) framework:
+
+**REASONING PHASE** (think before you write):
+1. Review the Risk Analyst's classification, confidence, risk level, and key indicators.
+2. Assess the regulatory requirements: what must a SAR narrative contain for this
+   type of activity?
+3. Identify the key compliance elements: customer identification, suspicious activity
+   description, transaction amounts and dates, and why the activity is suspicious.
+4. Plan the narrative structure: who, what, when, how much, and why it is suspicious.
+
+**ACTION PHASE** (then act on your reasoning):
+1. Draft a concise narrative of NO MORE THAN 120 words.
+2. Include specific details: customer identifier, exact amounts, dates, and counts.
+3. Describe the suspicious activity pattern and why it is inconsistent with the
+   customer's profile or expected behavior.
+4. Use formal regulatory language, including terms such as "suspicious activity",
+   "regulatory threshold", "financial institution", "money laundering" and
+   "Bank Secrecy Act" where they apply.
+5. Verify the narrative against the checklist below before responding.
+
+Narrative requirements:
+- Maximum 120 words. Count them.
+- Objective and factual: no speculation, accusations, or legal conclusions.
+- Never invent facts, amounts, dates, or names that are not in the provided data.
+- Must contain: customer identification, description of suspicious activity,
+  transaction amounts and dates, and the reason the activity is suspicious.
+
+Regulatory citations: choose the relevant ones from
+"31 CFR 1020.320 (BSA)", "12 CFR 21.11 (SAR Filing)", "FinCEN SAR Instructions".
+
+Respond with ONLY a JSON object, no other text, in this format:
+{
+    "narrative": "<SAR narrative, max 120 words>",
+    "narrative_reasoning": "<concise summary of your reasoning and action steps, max 500 characters>",
+    "regulatory_citations": ["<citation>", "..."],
+    "completeness_check": <true if the narrative satisfies every requirement above, otherwise false>
+}
+
+If the provided data is insufficient to cover a required element, do not fabricate it:
+state what is known and set "completeness_check" to false."""
 
     def generate_compliance_narrative(self, case_data, risk_analysis) -> 'ComplianceOfficerOutput':
         """
@@ -80,29 +122,115 @@ class ComplianceOfficerAgent:
         - Parses and validates JSON response
         - Logs operations for audit
         """
-        pass
+        start_time = datetime.now()
+        failure_reason = "Narrative generation failed"
+        user_prompt = ""
+        data = {}
+        try:
+            txn_lines = self._format_transactions_for_compliance(case_data.transactions)
+            user_prompt = "\n".join([
+                "Case Facts:",
+                f"- Case ID: {case_data.case_id}",
+                f"- Customer: {case_data.customer.name} (Customer ID: {case_data.customer.customer_id})",
+                "Transactions:",
+                txn_lines,
+                "",
+                self._format_risk_analysis_for_prompt(risk_analysis),
+                "",
+                "Complete the REASONING phase, then the ACTION phase, and respond with the JSON object only.",
+            ])
+            llm_response = self.client.chat.completions.create(
+                model=self.model,
+                messages=[
+                    {"role": "system", "content": self.system_prompt},
+                    {"role": "user", "content": user_prompt}
+                ],
+                temperature=0.3,
+                max_tokens=800
+            )
+            response_content = llm_response.choices[0].message.content
+            try:
+                json_from_response = self._extract_json_from_response(response_content)
+                data = json.loads(json_from_response)
+            except ValueError as parse_error:  # includes json.JSONDecodeError
+                failure_reason = "JSON parsing failed"
+                raise ValueError(f"Failed to parse Compliance Officer JSON output: {parse_error}") from parse_error
+
+            validation = self._validate_narrative_compliance(data.get("narrative", ""))
+            if not validation["within_word_limit"]:
+                failure_reason = "Narrative exceeds word limit"
+                raise ValueError(
+                    f"Narrative is {validation['word_count']} words; limit is {validation['max_words']}."
+                )
+
+            result = ComplianceOfficerOutput(**data)
+            self.logger.log_agent_action(  # log success for audit
+                agent_type="ComplianceOfficer",
+                action="generate_compliance_narrative",
+                case_id=case_data.case_id,
+                input_data=user_prompt,
+                output_data=data,
+                reasoning=result.narrative_reasoning,
+                execution_time_ms=(datetime.now() - start_time).total_seconds() * 1000,
+                success=True,
+                error_message=None
+            )
+            return result
+        except Exception as e:
+            self.logger.log_agent_action(  # log failure for audit
+                agent_type="ComplianceOfficer",
+                action="generate_compliance_narrative",
+                case_id=case_data.case_id,
+                input_data=user_prompt,
+                output_data=data or {},
+                reasoning=failure_reason,
+                execution_time_ms=(datetime.now() - start_time).total_seconds() * 1000,
+                success=False,
+                error_message=str(e)
+            )
+            raise
 
     def _extract_json_from_response(self, response_content: str) -> str:
-        """Extract JSON content from LLM response
-        
-        TODO: Implement JSON extraction that handles:
-        - JSON in code blocks (```json)
-        - JSON in plain text
-        - Malformed responses
-        - Empty responses
-        """
-        pass
+        if response_content is None or response_content.strip() == "": #if there's nothing there, show error
+            raise ValueError("No JSON content found: LLM response is empty.")
+        if "```json" in response_content: #if there's ('''json), return inside the fence
+            start = response_content.find("```json") + len("```json")
+            end = response_content.find("```", start)
+            json_str = response_content[start:end].strip()
+        else: #it must be plain text, so find what's inside {}
+            start = response_content.find("{")
+            end = response_content.rfind("}")
+            if start == -1 or end == -1: #unless there's no JSON at all, then raise error
+                raise ValueError("No JSON content found in LLM response.")
+            json_str = response_content[start:end + 1]
+        return json_str 
+
+    def _format_transactions_for_compliance(self, transactions) -> str:
+        """Format transactions for the compliance prompt, one line per transaction"""
+        lines = []
+        for i, txn in enumerate(transactions, 1):
+            line = f"{i}. {txn.transaction_date}: ${txn.amount:,.2f} {txn.transaction_type}"
+            if txn.location:
+                line += f" at {txn.location}"
+            if txn.method:
+                line += f" via {txn.method}"
+            if txn.description:
+                line += f" - {txn.description}"
+            lines.append(line)
+        return "\n".join(lines)
 
     def _format_risk_analysis_for_prompt(self, risk_analysis) -> str:
-        """Format risk analysis results for compliance prompt
-        
-        TODO: Create structured format that includes:
-        - Classification and confidence
-        - Key suspicious indicators
-        - Risk level assessment
-        - Analyst reasoning
-        """
-        pass
+        indicators = "\n".join(f"  - {indicator}" for indicator in risk_analysis.key_indicators) #turning list of indicators into a block of text
+        lines = [
+            "Risk Analyst Findings:",
+            f"- Classification: {risk_analysis.classification}",
+            f"- Confidence Score: {risk_analysis.confidence_score}",
+            f"- Risk Level: {risk_analysis.risk_level}",
+            "- Key Suspicious Indicators:",
+            indicators,
+            f"- Analyst Reasoning: {risk_analysis.reasoning}",
+        ]
+        return "\n".join(lines)
 
     def _validate_narrative_compliance(self, narrative: str) -> Dict[str, Any]:
         """Validate narrative meets regulatory requirements
@@ -113,7 +241,41 @@ class ComplianceOfficerAgent:
         - Appropriate terminology
         - Regulatory completeness
         """
-        pass
+        max_words = get_regulatory_requirements()["word_limit"]
+        word_count = len((narrative or "").split())
+        text = (narrative or "").lower()
+
+        # Heuristic keyword/pattern checks for each required element
+        elements_present = {
+            "customer_identification": any(k in text for k in ("customer", "account holder", "subject", "account")),
+            "suspicious_activity_description": any(k in text for k in ("suspicious", "structuring", "transactions", "deposits")),
+            "transaction_amounts": bool(re.search(r"\$\s?\d", text)),
+            "transaction_dates": bool(re.search(
+                r"\d{4}-\d{2}-\d{2}|\d{1,2}/\d{1,2}/\d{2,4}|"
+                r"(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*\.? \d{1,2}",
+                text)),
+            "why_suspicious": any(k in text for k in ("inconsistent", "indicat", "pattern", "threshold", "avoid", "unusual")),
+        }
+        missing = [name for name, present in elements_present.items() if not present]
+
+        # Terminology: at least one required regulatory term must appear
+        terms_found = [t for t in get_regulatory_requirements()["terminology"] if t.lower() in text]
+        terminology_ok = len(terms_found) >= 1
+
+        within_word_limit = validate_word_count(narrative or "", max_words)
+        has_required_elements = not missing
+
+        return {
+            "word_count": word_count,
+            "max_words": max_words,
+            "within_word_limit": within_word_limit,
+            "elements_present": elements_present,
+            "missing_elements": missing,
+            "has_required_elements": has_required_elements,
+            "terms_found": terms_found,
+            "terminology_ok": terminology_ok,
+            "regulatory_complete": within_word_limit and has_required_elements and terminology_ok,
+        }
 
 # ===== REACT PROMPTING HELPERS =====
 

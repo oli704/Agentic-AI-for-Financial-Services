@@ -58,8 +58,6 @@ class RiskAnalystAgent:
         self.client = openai_client
         self.logger = explainability_logger
         self.model = model
-
-        # Chain-of-Thought system prompt
         self.system_prompt = """You are a senior Financial Crime Risk Analyst with 15 years of
 experience in AML/BSA compliance, transaction monitoring, and SAR investigations.
 You review cases objectively and rely only on the evidence provided.
