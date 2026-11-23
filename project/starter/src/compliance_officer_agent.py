@@ -53,7 +53,7 @@ class ComplianceOfficerAgent:
     - Validates narrative completeness
     """
     
-    def __init__(self, openai_client, explainability_logger, model="gpt-4"):
+    def __init__(self, openai_client, explainability_logger, model="gpt-4o"):
         """Initialize the Compliance Officer Agent
         
         Args:

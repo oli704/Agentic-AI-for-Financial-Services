@@ -19,6 +19,7 @@ import openai
 from datetime import datetime
 from typing import Dict, Any, List
 from dotenv import load_dotenv
+from pydantic import ValidationError
 try:
     from foundation_sar import (
         RiskAnalystOutput,
@@ -48,7 +49,7 @@ class RiskAnalystAgent:
     - Logs all operations for audit
     """
 
-    def __init__(self, openai_client, explainability_logger, model="gpt-4"):
+    def __init__(self, openai_client, explainability_logger, model="gpt-4o"):
         """Initialize the Risk Analyst Agent
         Args:
             openai_client: OpenAI client instance
@@ -72,7 +73,16 @@ Analyze each case by thinking step by step through this framework:
 3. **Regulatory Mapping**: Consider which regulations or typologies the patterns
    relate to (e.g. BSA/CTR thresholds, structuring, OFAC sanctions, fraud typologies).
 4. **Risk Quantification**: Judge severity and your confidence based on the strength
-and number of indicators.
+and number of indicators. Calibrate confidence_score using this scale:
+   - 0.90-1.00: Multiple independent indicators and a clear, textbook typology match,
+     with no plausible innocent explanation in the data.
+   - 0.70-0.89: A clear pattern with a good typology fit, but some ambiguity or a
+     possible legitimate explanation.
+   - 0.50-0.69: Some suspicious indicators, but the evidence is partial or mixed.
+   - 0.30-0.49: Weak or isolated indicators; activity may well be legitimate.
+   - Below 0.30: Little or no evidence of suspicious activity.
+   Use the specific value the evidence supports (e.g. 0.62, 0.78, 0.93). Do not
+   default to a round or habitual number.
 5. **Classification Decision**: Choose the single best-fitting category.
 
 Classification must be exactly one of:
@@ -84,7 +94,7 @@ Respond with ONLY a JSON object, no other text, in this format:
 {
     "classification": "<one of the categories above>",
     "confidence_score": <float between 0.0 and 1.0>,
-    "reasoning": "<concise summary of your step-by-step analysis, max 500 characters>",
+    "reasoning": "<concise summary of your step-by-step analysis, max 400 characters>",
     "key_indicators": ["<specific suspicious indicator>", "..."],
     "risk_level": "<Low | Medium | High | Critical>"
 }
@@ -109,23 +119,31 @@ a low confidence score and risk level rather than overstating the risk."""
         try:
             system_prompt = self.system_prompt
             user_prompt = self._format_case_for_prompt(case_data)
-            llm_response = self.client.chat.completions.create(
-                model=self.model,
-                messages=[
-                    {"role": "system", "content": system_prompt},
-                    {"role": "user", "content": user_prompt}
-                ],
-                temperature=0.3,  # changed from 0.2 to match test_api_call_parameters
-                max_tokens=1000  # changed from 600 to match test_api_call_parameters
-            )
-            response_content = llm_response.choices[0].message.content
-            try:
-                json_from_response = self._extract_json_from_response(response_content)
-                data = json.loads(json_from_response)
-            except ValueError as parse_error:  # includes json.JSONDecodeError
-                failure_reason = "JSON parsing failed"
-                raise ValueError(f"Failed to parse Risk Analyst JSON output: {parse_error}") from parse_error
-            result = RiskAnalystOutput(**data)
+            max_attempts = 2  # retry once if the model's output fails schema validation
+            for attempt in range(1, max_attempts + 1):
+                llm_response = self.client.chat.completions.create(
+                    model=self.model,
+                    messages=[
+                        {"role": "system", "content": system_prompt},
+                        {"role": "user", "content": user_prompt}
+                    ],
+                    temperature=0.3,  # changed from 0.2 to match test_api_call_parameters
+                    max_tokens=1000  # changed from 600 to match test_api_call_parameters
+                )
+                response_content = llm_response.choices[0].message.content
+                try:
+                    json_from_response = self._extract_json_from_response(response_content)
+                    data = json.loads(json_from_response)
+                except ValueError as parse_error:  # includes json.JSONDecodeError
+                    failure_reason = "JSON parsing failed"
+                    raise ValueError(f"Failed to parse Risk Analyst JSON output: {parse_error}") from parse_error
+                try:
+                    result = RiskAnalystOutput(**data)
+                    break
+                except ValidationError:
+                    failure_reason = "Output validation failed"
+                    if attempt == max_attempts:
+                        raise
             self.logger.log_agent_action( #log success for audit
                 agent_type="RiskAnalyst",
                 action="analyze_case",
