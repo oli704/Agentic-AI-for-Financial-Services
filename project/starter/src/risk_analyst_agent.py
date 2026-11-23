@@ -115,8 +115,8 @@ a low confidence score and risk level rather than overstating the risk."""
                     {"role": "system", "content": system_prompt},
                     {"role": "user", "content": user_prompt}
                 ],
-                temperature=0.2,
-                max_tokens=600
+                temperature=0.3,  # changed from 0.2 to match test_api_call_parameters
+                max_tokens=1000  # changed from 600 to match test_api_call_parameters
             )
             response_content = llm_response.choices[0].message.content
             try:

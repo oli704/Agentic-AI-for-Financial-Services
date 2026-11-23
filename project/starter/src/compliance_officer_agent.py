@@ -145,7 +145,7 @@ state what is known and set "completeness_check" to false."""
                     {"role": "system", "content": self.system_prompt},
                     {"role": "user", "content": user_prompt}
                 ],
-                temperature=0.3,
+                temperature=0.2,
                 max_tokens=800
             )
             response_content = llm_response.choices[0].message.content
@@ -160,7 +160,7 @@ state what is known and set "completeness_check" to false."""
             if not validation["within_word_limit"]:
                 failure_reason = "Narrative exceeds word limit"
                 raise ValueError(
-                    f"Narrative is {validation['word_count']} words; limit is {validation['max_words']}."
+                    f"Narrative exceeds {validation['max_words']} word limit ({validation['word_count']} words)."
                 )
 
             result = ComplianceOfficerOutput(**data)

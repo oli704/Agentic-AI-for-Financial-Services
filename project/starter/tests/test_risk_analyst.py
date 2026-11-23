@@ -205,15 +205,16 @@ class TestRiskAnalystAgent:
         case = CaseData(
             case_id="CASE_ERROR",
             customer=customer,
-            accounts=[],
+            # FIX: was accounts=[]; CaseData requires every transaction's account_id to exist in accounts
+            accounts=[AccountData(account_id="ACC_ERROR", customer_id="CUST_TEST", account_type="Checking", opening_date="2020-01-01", current_balance=1000.0, average_monthly_balance=1000.0, status="Active")],
             transactions=[TransactionData(
                 transaction_id="TXN_ERROR",
                 account_id="ACC_ERROR",
                 transaction_date="2025-01-01",
-                transaction_type="Test",
+                transaction_type="Cash_Deposit",  # FIX: was "Test", which the TransactionData schema rejects; use a valid literal
                 amount=100.0,
                 description="Test transaction",
-                method="Test"
+                method="Cash"  # FIX: was "Test", which the TransactionData schema rejects; use a valid literal
             )],
             case_created_at=datetime.now().isoformat(),
             data_sources={"test": "data"}
@@ -402,15 +403,16 @@ That completes the analysis.'''
         case = CaseData(
             case_id="CASE_API",
             customer=customer,
-            accounts=[],
+            # FIX: was accounts=[]; CaseData requires every transaction's account_id to exist in accounts
+            accounts=[AccountData(account_id="ACC_API", customer_id="CUST_API", account_type="Checking", opening_date="2020-01-01", current_balance=1000.0, average_monthly_balance=1000.0, status="Active")],
             transactions=[TransactionData(
                 transaction_id="TXN_API",
                 account_id="ACC_API",
                 transaction_date="2025-01-01",
-                transaction_type="Test",
+                transaction_type="Cash_Deposit",  # FIX: was "Test", which the TransactionData schema rejects; use a valid literal
                 amount=1000.0,
                 description="API test",
-                method="Test"
+                method="Cash"  # FIX: was "Test", which the TransactionData schema rejects; use a valid literal
             )],
             case_created_at=datetime.now().isoformat(),
             data_sources={"api": "test"}
