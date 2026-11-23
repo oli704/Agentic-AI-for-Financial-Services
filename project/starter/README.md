@@ -415,6 +415,12 @@ Rejecting a case skips the compliance stage, so each rejection avoids one narrat
 - **Test imports.** The test files import `from src.…`, so the notebook adds the project root to `sys.path` before running them.
 - **Audit log.** `outputs/audit_logs/workflow_integration.jsonl` still contains the failed entries from the early `gpt-4` runs. They are kept as genuine history.
 
+## 🤖 AI Use Disclosure
+
+I wrote some of the code myself and used AI autocomplete for other parts. I went through every function to make the design decisions and to understand the trade-offs, rather than accepting output unreviewed.
+
+An AI coding assistant (Claude Code) was also used in the final stages for: uncommenting the provided Step 5 and Step 7 code in notebook 03, adding the AI-vs-human coherence calculations, adding type hints and docstrings, removing leftover scaffold text, fixing the test-import path, and drafting the results section above. I reviewed those changes before committing them.
+
 ## 📚 Additional Resources
 
 - **🏗️ System Architecture**: `docs/system_architecture.md` - **READ FIRST!** Complete system overview with data flow diagrams
