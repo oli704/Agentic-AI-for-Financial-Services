@@ -1,0 +1,142 @@
+{
+  "sar_metadata": {
+    "sar_id": "SAR_5d408a3a-b933-4a34-a291-260526535f81",
+    "filing_date": "2026-11-23T21:20:58.529689",
+    "filing_type": "Suspicious Activity Report",
+    "ai_generated": true,
+    "review_status": "human_approved",
+    "checksum": "b5a120d10eb841c30dfe396aac298c47025f664e4473bdaebf83bf9acf32d1c5"
+  },
+  "filing_institution": {
+    "name": "Example National Bank",
+    "rssd_id": "0000000",
+    "ein": "00-0000000",
+    "address": "123 Placeholder St, Anytown, USA 00000",
+    "contact_office": "BSA/AML Compliance Department",
+    "contact_phone": "555-000-0000"
+  },
+  "subject_information": {
+    "customer_name": "Patrick Williams",
+    "customer_id": "CUST_0118",
+    "address": "PSC 1449, Box 1476, APO AA 87103",
+    "customer_since": "2021-09-05",
+    "risk_rating": "Medium"
+  },
+  "suspicious_activity": {
+    "classification": "Structuring",
+    "risk_level": "High",
+    "confidence_score": 0.91,
+    "narrative": "Customer Patrick Williams (ID: CUST_0118) engaged in suspicious structuring activity. On 2025-08-02 and 2025-08-04, multiple cash deposits and withdrawals were made at various branches, with amounts such as $7,762.48, $6,477.95, and $5,863.50, all below the $10,000 CTR threshold. These transactions suggest an attempt to evade Bank Secrecy Act reporting requirements. The pattern of activity is inconsistent with typical customer behavior and raises concerns of potential money laundering.",
+    "key_indicators": [
+      "Multiple cash deposits and withdrawals on same day",
+      "Amounts just below $10,000 threshold"
+    ],
+    "ai_reasoning": "Multiple cash deposits and withdrawals on the same day, with amounts just below $10,000, suggest structuring to avoid CTR reporting.",
+    "transaction_summary": {
+      "transaction_count": 79,
+      "total_amount": 222070.26,
+      "date_range": {
+        "start": "2025-02-05",
+        "end": "2025-08-04"
+      },
+      "transaction_ids": [
+        "TXN_88CAF8E4",
+        "TXN_A175A9F1",
+        "TXN_732C44FC",
+        "TXN_A85DF483",
+        "TXN_6D22A0CB",
+        "TXN_1E222CDF",
+        "TXN_BDF049A1",
+        "TXN_405EF977",
+        "TXN_8E219C69",
+        "TXN_B8BBB677",
+        "TXN_6FFE21DB",
+        "TXN_52FB4B0D",
+        "TXN_48772E35",
+        "TXN_8EFB50F8",
+        "TXN_BA791AC8",
+        "TXN_3BBACF6C",
+        "TXN_A48FA4EC",
+        "TXN_C4BBCDD4",
+        "TXN_36755DE0",
+        "TXN_3993F14B",
+        "TXN_8DF97B9B",
+        "TXN_D5DB406E",
+        "TXN_CFBA3CF1",
+        "TXN_D27C8A75",
+        "TXN_3DD706C7",
+        "TXN_328C1ACB",
+        "TXN_CBB69B5B",
+        "TXN_94575F73",
+        "TXN_690CCDE8",
+        "TXN_C4744865",
+        "TXN_F48E945B",
+        "TXN_433E4F0A",
+        "TXN_672A131C",
+        "TXN_AAEA9794",
+        "TXN_466707EA",
+        "TXN_232C19BA",
+        "TXN_08EF200C",
+        "TXN_FFF5B0C2",
+        "TXN_F275F75C",
+        "TXN_94BBFDC3",
+        "TXN_72ABD3D9",
+        "TXN_3402435A",
+        "TXN_B86BD71C",
+        "TXN_428A78A5",
+        "TXN_93232E0D",
+        "TXN_C7E40BBE",
+        "TXN_A0BD73E4",
+        "TXN_1843180F",
+        "TXN_9045C170",
+        "TXN_8DB375A7",
+        "TXN_4C853220",
+        "TXN_214A80F1",
+        "TXN_40292B00",
+        "TXN_2EB822F5",
+        "TXN_3FD943F3",
+        "TXN_5610BF12",
+        "TXN_0C29A64A",
+        "TXN_8AC18DE7",
+        "TXN_36CB0612",
+        "TXN_F76C5070",
+        "TXN_85FF56F9",
+        "TXN_642185CF",
+        "TXN_689EB012",
+        "TXN_7297D4B7",
+        "TXN_6AF87674",
+        "TXN_B3240C5A",
+        "TXN_A5778DDC",
+        "TXN_624F249B",
+        "TXN_39781CBA",
+        "TXN_770C9C5C",
+        "TXN_04C26FF7",
+        "GEO_48D2A513",
+        "GEO_1BDCA71D",
+        "GEO_F0112C86",
+        "GEO_8A082B5A",
+        "GEO_0D618AAF",
+        "GEO_045A71D3",
+        "GEO_24F5CF54",
+        "GEO_901FE29A"
+      ]
+    }
+  },
+  "regulatory_compliance": {
+    "citations": [
+      "31 CFR 1020.320 (BSA)",
+      "12 CFR 21.11 (SAR Filing)"
+    ],
+    "narrative_word_count": 67,
+    "compliance_status": "approved"
+  },
+  "audit_trail": {
+    "case_id": "77b9d53c-6ac6-408d-b6c9-f0cd82986d6a",
+    "processing_date": "2026-11-23T21:20:58.529689",
+    "ai_agents_used": [
+      "RiskAnalyst",
+      "ComplianceOfficer"
+    ],
+    "human_reviewer": "compliance_officer"
+  }
+}

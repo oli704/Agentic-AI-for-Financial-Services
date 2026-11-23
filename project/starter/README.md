@@ -390,6 +390,31 @@ Your project will be evaluated on:
 - Cache expensive operations where possible
 - Use appropriate temperature settings (0.2-0.3 for structured tasks)
 
+## ✅ Implementation Notes and Results
+
+### What was built
+- **`src/foundation_sar.py`**: Pydantic schemas with field validators (dates not in the future, SSN and phone formats, risk ratings, non-negative income), cross-checks that every account and transaction belongs to the case's customer, a JSONL `ExplainabilityLogger`, and a `DataLoader` that logs every case creation, successful or failed.
+- **`src/risk_analyst_agent.py`**: 5-step Chain-of-Thought prompt with a confidence-calibration scale, JSON extraction, schema validation and one retry on validation failure.
+- **`src/compliance_officer_agent.py`**: ReACT prompt, a 120-word narrative limit enforced in code as well as in the prompt, required-element and terminology checks, and regulatory citations.
+- **`notebooks/03_workflow_integration.ipynb`**: customer screening (at least two of: Medium/High rating, over $100K total, over 50 transactions), the two-stage workflow with a human gate, SAR documents with a SHA-256 checksum, efficiency metrics, and an AI-vs-human coherence report.
+
+### Results
+| Check | Result |
+|---|---|
+| Unit tests (`python -m pytest tests -q`) | 30 passed |
+| End-to-end workflow test (scripted human answers) | Passed |
+| Workflow run, 5 screened high-risk customers | 3 SARs filed, 2 rejected by the reviewer (60% / 40%) |
+| Demo run, 3 high-risk + 2 lower-risk customers | 4 SARs filed, 1 rejected |
+
+Rejecting a case skips the compliance stage, so each rejection avoids one narrative-generation call (40% of compliance calls in the first run, 20% in the demo run).
+
+### Notes and limitations
+- **Coherence, not accuracy.** `validate_ai_decisions` compares the AI's call with the reviewer's decision. There are no ground-truth labels for the CSV customers, and the reviewer sees the AI's reasoning first, so the figures show agreement, not correctness. The only labelled cases are the synthetic scenarios in `src/test_scenarios.py`.
+- **Small samples.** With 5 cases per run, a single case moves any rate by 20 points or more.
+- **Model.** Agents default to `gpt-4o`. `gpt-4` is not enabled on the Vocareum key.
+- **Test imports.** The test files import `from src.…`, so the notebook adds the project root to `sys.path` before running them.
+- **Audit log.** `outputs/audit_logs/workflow_integration.jsonl` still contains the failed entries from the early `gpt-4` runs. They are kept as genuine history.
+
 ## 📚 Additional Resources
 
 - **🏗️ System Architecture**: `docs/system_architecture.md` - **READ FIRST!** Complete system overview with data flow diagrams

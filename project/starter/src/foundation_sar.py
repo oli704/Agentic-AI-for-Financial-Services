@@ -14,23 +14,24 @@ This module contains the foundational components for SAR processing:
    - ExplainabilityLogger: Audit trail logging
    - DataLoader: Combines fragmented data into case objects
 
-YOUR TASKS:
-- Study the data files in data/ folder
-- Design Pydantic schemas that match the CSV structure
-- Implement validation rules for financial data
-- Create a DataLoader that builds unified case objects
-- Add proper error handling and logging
+Design notes:
+- Schemas mirror the CSV structure in data/ and validate at the boundary, so bad data
+  fails loudly instead of flowing downstream.
+- Field validators cover dates (not in the future), SSN/phone formats, risk ratings
+  and non-negative income.
+- DataLoader joins customer -> accounts -> transactions into one validated CaseData
+  and writes an audit entry for every attempt, successful or not.
 """
 
 import json
 import pandas as pd
 from datetime import datetime, timezone, date
-from typing import Dict, List, Optional, Any, Literal, Annotated
+from typing import Dict, List, Optional, Any, Literal, Annotated, Tuple
 from pydantic import BaseModel, Field, field_validator, AfterValidator, StringConstraints, model_validator
 import uuid
 import os
 
-# ===== TODO: IMPLEMENT PYDANTIC SCHEMAS =====
+# ===== PYDANTIC SCHEMAS =====
 
 def _not_in_future(v: date) -> date:
     """Validator to ensure date is not in the future"""
@@ -40,8 +41,10 @@ def _not_in_future(v: date) -> date:
 
 PastOrTodayDate = Annotated[date, AfterValidator(_not_in_future)]
 
-def _max_words(limit: int):
+def _max_words(limit: int) -> AfterValidator:
+    """Build a validator that rejects strings longer than ``limit`` words"""
     def check(v: str) -> str:
+        """Raise ValueError if ``v`` exceeds the word limit, else return it unchanged"""
         if len(v.split()) > limit:
             raise ValueError(f"Must be {limit} words or fewer")
         return v
@@ -100,12 +103,14 @@ class CaseData(BaseModel):
     @field_validator('transactions')
     @classmethod
     def transactions_not_empty(cls, v: List[TransactionData]) -> List[TransactionData]:
+        """Reject cases with no transactions: there is nothing to analyse"""
         if not v:
             raise ValueError("Transactions list cannot be empty")
         return v
 
     @model_validator(mode="after")
-    def check_case_links(self):
+    def check_case_links(self) -> "CaseData":
+        """Ensure every account belongs to the customer and every transaction to a case account"""
         if any(a.customer_id != self.customer.customer_id for a in self.accounts):
             raise ValueError("All accounts must belong to the case's customer")
         account_ids = {a.account_id for a in self.accounts}
@@ -126,56 +131,35 @@ class ComplianceOfficerOutput(BaseModel):
     regulatory_citations: List[str] = Field(..., description="List of relevant regulations like: '31 CFR 1020.320 (BSA)', '12 CFR 21.11 (SAR Filing)', 'FinCEN SAR Instructions'")
     completeness_check: bool = Field(..., description="Whether narrative meets all requirements")
 
-# ===== TODO: IMPLEMENT AUDIT LOGGING =====
+# ===== AUDIT LOGGING =====
 
 class ExplainabilityLogger:
     """Simple audit logging for compliance trails
 
-    ATTRIBUTES:
-    - log_file: str = Path to JSONL log file (default: "sar_audit.jsonl")
-    - entries: List = In-memory storage of log entries
+    Every entry is kept in memory (``entries``) and appended to a JSONL file.
 
-    METHODS:
-    - log_agent_action(): Logs agent actions with structured data
-    
-    LOG ENTRY STRUCTURE (use this exact format):
-    {
-        'timestamp': datetime.now(timezone.utc).isoformat(),
-        'case_id': case_id,
-        'agent_type': agent_type,  # "DataLoader", "RiskAnalyst", "ComplianceOfficer"
-        'action': action,          # "create_case", "analyze_case", "generate_narrative"
-        'input_summary': str(input_data),
-        'output_summary': str(output_data),
-        'reasoning': reasoning,
-        'execution_time_ms': execution_time_ms,
-        'success': success,        # True/False
-        'error_message': error_message  # None if success=True
-    }
-    
-    HINT: Write each entry as JSON + newline to create JSONL format
-    HINT: Use 'a' mode to append to log file
-    HINT: Store entries in self.entries list AND write to file
+    Attributes:
+        log_file: Path to the JSONL log file (default: "sar_audit.jsonl")
+        entries: In-memory list of log entries
+
+    Entry fields: timestamp (UTC ISO), case_id, agent_type ("DataLoader", "RiskAnalyst",
+    "ComplianceOfficer"), action, input_summary, output_summary, reasoning,
+    execution_time_ms, success, error_message (None on success).
     """
-    
-    def __init__(self, log_file: str = "sar_audit.jsonl"):
-        # TODO: Initialize with log_file path and empty entries list
+
+    def __init__(self, log_file: str = "sar_audit.jsonl") -> None:
+        """Set the JSONL log path and start with an empty in-memory entry list"""
         self.log_file = log_file
         self.entries = []
     
     def log_agent_action(self, agent_type: str, action: str, case_id: str, 
-                        input_data: Dict, output_data: Dict, reasoning: str, 
+                        input_data: Any, output_data: Any, reasoning: str, 
                         execution_time_ms: float, success: bool = True, 
-                        error_message: Optional[str] = None):
+                        error_message: Optional[str] = None) -> None:
         """Log an agent action with essential context
-        
-        IMPLEMENTATION STEPS:
-        1. Create entry dictionary with all fields (see structure above)
-        2. Add entry to self.entries list
-        3. Write entry to log file as JSON line
-        
-        HINT: Use json.dumps(entry) + '\n' for JSONL format
-        HINT: Use datetime.now(timezone.utc).isoformat() for timestamp
-        HINT: Convert input_data and output_data to strings with str()
+
+        Builds the audit entry, stores it in ``self.entries`` and appends it to the log
+        file as one JSON line. Inputs and outputs are stored as strings.
         """
         entry ={'timestamp': datetime.now(timezone.utc).isoformat(),
                 'case_id': case_id,
@@ -193,34 +177,36 @@ class ExplainabilityLogger:
             f.write(json.dumps(entry)+'\n')
 
 class DataLoader:
-    """Simple loader that creates case objects from CSV data
-    
-    ATTRIBUTES:
-    - logger: ExplainabilityLogger = For audit logging
-    
-    HELPFUL METHODS:
-    - create_case_from_data(): Creates CaseData from input dictionaries
-    
-    IMPLEMENTATION PATTERN:
-    1. Start timing with start_time = datetime.now()
-    2. Generate case_id with str(uuid.uuid4())
-    3. Create CustomerData object from customer_data dict
-    4. Filter accounts where acc['customer_id'] == customer.customer_id
-    5. Get account_ids set from filtered accounts
-    6. Filter transactions where txn['account_id'] in account_ids
-    7. Create CaseData object with all components
-    8. Calculate execution_time_ms
-    9. Log success/failure with self.logger.log_agent_action()
-    10. Return CaseData object (or raise exception on failure)
+    """Creates validated case objects from raw customer, account and transaction records
+
+    Attributes:
+        logger: ExplainabilityLogger used to audit every case-creation attempt
     """
-    
-    def __init__(self, explainability_logger: ExplainabilityLogger):
+
+    def __init__(self, explainability_logger: ExplainabilityLogger) -> None:
+        """Keep a reference to the audit logger used for every case creation"""
         self.logger = explainability_logger
     
     def create_case_from_data(self, 
                             customer_data: Dict,
                             account_data: List[Dict],
                             transaction_data: List[Dict]) -> CaseData:
+        """Build a validated CaseData for one customer from raw record dicts
+
+        Accounts are filtered to the customer, transactions to those accounts. Both the
+        success and the failure path write an audit entry; failures are then re-raised.
+
+        Args:
+            customer_data: One customer record
+            account_data: Account records (any customer; filtered to this one)
+            transaction_data: Transaction records (any account; filtered to this customer's)
+
+        Returns:
+            The validated CaseData
+
+        Raises:
+            pydantic.ValidationError: If any record fails schema validation
+        """
         start_time = datetime.now(timezone.utc)
         case_id = str(uuid.uuid4())
         try:
@@ -264,7 +250,7 @@ class DataLoader:
 
 # ===== HELPER FUNCTIONS (PROVIDED) =====
 
-def load_csv_data(data_dir: str = "data/") -> tuple:
+def load_csv_data(data_dir: str = "data/") -> Tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
     """Helper function to load all CSV files
     
     Returns:
@@ -283,9 +269,9 @@ def load_csv_data(data_dir: str = "data/") -> tuple:
 if __name__ == "__main__":
     print("🏗️  Foundation SAR Module")
     print("Core data schemas and utilities for SAR processing")
-    print("\n📋 TODO Items:")
-    print("• Implement Pydantic schemas based on CSV data")
-    print("• Create ExplainabilityLogger for audit trails")
-    print("• Build DataLoader for case object creation")
-    print("• Add comprehensive error handling")
-    print("• Write unit tests for all components")
+    print("\n📦 Components:")
+    print("• Pydantic schemas: CustomerData, AccountData, TransactionData, CaseData")
+    print("• Agent outputs: RiskAnalystOutput, ComplianceOfficerOutput")
+    print("• ExplainabilityLogger: JSONL audit trail")
+    print("• DataLoader: builds validated case objects")
+    print("\n🧪 Run the tests: python -m pytest tests/test_foundation.py")

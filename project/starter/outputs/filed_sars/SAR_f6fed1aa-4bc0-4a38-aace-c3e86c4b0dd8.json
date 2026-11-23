@@ -1,0 +1,73 @@
+{
+  "sar_metadata": {
+    "sar_id": "SAR_f6fed1aa-4bc0-4a38-aace-c3e86c4b0dd8",
+    "filing_date": "2026-11-23T20:52:22.155274",
+    "filing_type": "Suspicious Activity Report",
+    "ai_generated": true,
+    "review_status": "human_approved",
+    "checksum": "a69864bf3d6a95f0a9c113c0dd5c23cb9528cccda4d52069e701f761794850f6"
+  },
+  "filing_institution": {
+    "name": "Example National Bank",
+    "rssd_id": "0000000",
+    "ein": "00-0000000",
+    "address": "123 Placeholder St, Anytown, USA 00000",
+    "contact_office": "BSA/AML Compliance Department",
+    "contact_phone": "555-000-0000"
+  },
+  "subject_information": {
+    "customer_name": "Vincent Reyes",
+    "customer_id": "CUST_0104",
+    "address": "8300 Jeremy Wells, Larryville, MS 66474",
+    "customer_since": "2023-07-29",
+    "risk_rating": "Low"
+  },
+  "suspicious_activity": {
+    "classification": "Other",
+    "risk_level": "Low",
+    "confidence_score": 0.35,
+    "narrative": "Vincent Reyes (Customer ID: CUST_0104) conducted varied transactions from 2025-02-11 to 2025-07-28, including a $4,243.00 check deposit on 2025-06-21 and a $4,543.42 ACH credit on 2025-07-28. These transactions, totaling $22,170.76, are consistent with personal expenses such as education, credit card payments, and investments. No suspicious activity, structuring, or money laundering indicators were identified. The activity aligns with personal financial management, not breaching regulatory thresholds. Reviewed under 31 CFR 1020.320 (BSA) and 12 CFR 21.11 (SAR Filing).",
+    "key_indicators": [
+      "Varied transaction types",
+      "Consistent with personal expenses"
+    ],
+    "ai_reasoning": "Transactions are varied and consistent with personal expenses. No clear pattern of structuring, sanctions, fraud, or money laundering. Amounts and activities align with personal financial management.",
+    "transaction_summary": {
+      "transaction_count": 10,
+      "total_amount": 23169.76,
+      "date_range": {
+        "start": "2025-02-11",
+        "end": "2025-07-28"
+      },
+      "transaction_ids": [
+        "TXN_76D1BB84",
+        "TXN_3C41B020",
+        "TXN_08B70747",
+        "TXN_32BB7F0F",
+        "TXN_36890384",
+        "TXN_D1E4D942",
+        "TXN_599C7A8A",
+        "TXN_0C97E7EB",
+        "TXN_4D628EB3",
+        "TXN_4187A460"
+      ]
+    }
+  },
+  "regulatory_compliance": {
+    "citations": [
+      "31 CFR 1020.320 (BSA)",
+      "12 CFR 21.11 (SAR Filing)"
+    ],
+    "narrative_word_count": 76,
+    "compliance_status": "approved"
+  },
+  "audit_trail": {
+    "case_id": "a5bc4ef8-4547-479a-b390-6acdacc69019",
+    "processing_date": "2026-11-23T20:52:22.155274",
+    "ai_agents_used": [
+      "RiskAnalyst",
+      "ComplianceOfficer"
+    ],
+    "human_reviewer": "compliance_officer"
+  }
+}

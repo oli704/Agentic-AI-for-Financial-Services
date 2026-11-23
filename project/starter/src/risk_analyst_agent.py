@@ -6,18 +6,17 @@ This agent performs suspicious activity classification using Chain-of-Thought re
 It analyzes customer profiles, account behavior, and transaction patterns to identify
 potential financial crimes.
 
-YOUR TASKS:
-- Study Chain-of-Thought prompting methodology
-- Design system prompt with structured reasoning framework
-- Implement case analysis with proper error handling
-- Parse and validate structured JSON responses
-- Create comprehensive audit logging
+Design notes:
+- A 5-step Chain-of-Thought system prompt drives the analysis and calibrates confidence.
+- LLM output is parsed from JSON and validated against RiskAnalystOutput; one retry is
+  made if schema validation fails.
+- Every call, successful or failed, is written to the audit log.
 """
 
 import json
 import openai
 from datetime import datetime
-from typing import Dict, Any, List
+from typing import Any, Dict, List
 from dotenv import load_dotenv
 from pydantic import ValidationError
 try:
@@ -41,15 +40,16 @@ class RiskAnalystAgent:
     """
     Risk Analyst agent using Chain-of-Thought reasoning.
 
-    TODO: Implement agent that:
+    The agent:
     - Uses systematic Chain-of-Thought prompting
     - Classifies suspicious activity patterns
-    - Returns structured JSON output
+    - Returns structured, schema-validated output
     - Handles errors gracefully
     - Logs all operations for audit
     """
 
-    def __init__(self, openai_client, explainability_logger, model="gpt-4o"):
+    def __init__(self, openai_client: openai.OpenAI, explainability_logger: ExplainabilityLogger,
+                 model: str = "gpt-4o") -> None:
         """Initialize the Risk Analyst Agent
         Args:
             openai_client: OpenAI client instance
@@ -102,15 +102,22 @@ Respond with ONLY a JSON object, no other text, in this format:
 Base conclusions only on the data provided. If the evidence is weak, use "Other" with
 a low confidence score and risk level rather than overstating the risk."""
 
-    def analyze_case(self, case_data) -> 'RiskAnalystOutput':  # Use quotes for forward reference
+    def analyze_case(self, case_data: CaseData) -> RiskAnalystOutput:
         """
         Perform risk analysis on a case using Chain-of-Thought reasoning.
-        TODO: Implement analysis that:
-        - Creates structured user prompt with case details
-        - Makes OpenAI API call with system prompt
-        - Parses and validates JSON response
-        - Handles errors and logs operations
-        - Returns validated RiskAnalystOutput
+
+        Builds the user prompt from the case, calls the model, parses and validates the
+        JSON response (retrying once on schema failure) and logs the outcome.
+
+        Args:
+            case_data: The validated case to analyse
+
+        Returns:
+            The validated RiskAnalystOutput
+
+        Raises:
+            ValueError: If the response contains no parseable JSON
+            pydantic.ValidationError: If the output still fails the schema after a retry
         """
         start_time = datetime.now()
         user_prompt = None
@@ -186,7 +193,7 @@ a low confidence score and risk level rather than overstating the risk."""
             json_str = response_content[start:end + 1]
         return json_str
 
-    def _format_accounts(self, accounts) -> str:
+    def _format_accounts(self, accounts: List[Any]) -> str:
         """Format account data for inclusion in the LLM prompt"""
         lines = []
         for account in accounts:
@@ -198,7 +205,7 @@ a low confidence score and risk level rather than overstating the risk."""
             lines.append("")
         return "\n".join(lines)
 
-    def _format_transactions(self, transactions) -> str:
+    def _format_transactions(self, transactions: List[Any]) -> str:
         """Format transaction data for inclusion in the LLM prompt"""
         lines = []
         for i, txn in enumerate(transactions, 1):
@@ -212,7 +219,7 @@ a low confidence score and risk level rather than overstating the risk."""
             lines.append(line)
         return "\n".join(lines)
 
-    def _format_case_for_prompt(self, case_data) -> str:
+    def _format_case_for_prompt(self, case_data: CaseData) -> str:
         """Format case data for inclusion in the LLM prompt"""
         transactions = case_data.transactions
         total = sum(txn.amount for txn in transactions)
@@ -234,10 +241,8 @@ a low confidence score and risk level rather than overstating the risk."""
 
  # ===== PROMPT ENGINEERING HELPERS =====
 
-def create_chain_of_thought_framework():
-    """Helper function showing Chain-of-Thought structure
-
-    TODO: Study this example and adapt for financial crime analysis:
+def create_chain_of_thought_framework() -> Dict[str, str]:
+    """Return the Chain-of-Thought structure used in the system prompt
 
     **Analysis Framework** (Think step-by-step):
     1. **Data Review**: What does the data tell us?
@@ -254,11 +259,8 @@ def create_chain_of_thought_framework():
         "step_5": "Classification Decision - Determine final category"
     }
 
-def get_classification_categories():
-    """Standard SAR classification categories
-
-    TODO: Use these categories in your prompts:
-    """
+def get_classification_categories() -> Dict[str, str]:
+    """Return the standard SAR classification categories with short descriptions"""
     return {
         "Structuring": "Transactions designed to avoid reporting thresholds",
         "Sanctions": "Potential sanctions violations or prohibited parties",
@@ -269,21 +271,26 @@ def get_classification_categories():
 
 # ===== TESTING UTILITIES =====
 
-def test_agent_with_sample_case():
-    """Test the agent with a sample case
+def test_agent_with_sample_case() -> None:
+    """Offline smoke test: the framework helpers cover every classification category
+
+    Makes no API calls. Full agent behaviour is covered by tests/test_risk_analyst.py.
     """
     print("🧪 Testing Risk Analyst Agent")
-    print("TODO: Implement test case")
+    categories = get_classification_categories()
+    steps = create_chain_of_thought_framework()
+    assert set(categories) == {"Structuring", "Sanctions", "Fraud", "Money_Laundering", "Other"}
+    assert len(steps) == 5
+    print(f"✅ {len(categories)} categories and {len(steps)} reasoning steps defined")
 
 if __name__ == "__main__":
     print("🔍 Risk Analyst Agent Module")
     print("Chain-of-Thought reasoning for suspicious activity classification")
-    print("\n📋 TODO Items:")
-    print("• Design Chain-of-Thought system prompt")
-    print("• Implement analyze_case method")
-    print("• Add JSON parsing and validation")
-    print("• Create comprehensive error handling")
-    print("• Test with sample cases")
+    print("\n📦 Components:")
+    print("• RiskAnalystAgent.analyze_case: Chain-of-Thought analysis")
+    print("• JSON parsing and schema validation with one retry")
+    print("• Audit logging for every call")
+    print("\n🧪 Run the tests: python -m pytest tests/test_risk_analyst.py")
     print("\n💡 Key Concepts:")
     print("• Chain-of-Thought: Step-by-step reasoning")
     print("• Structured Output: Validated JSON responses")

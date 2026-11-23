@@ -1,5 +1,4 @@
-# Compliance Officer Agent - ReACT Implementation  
-# TODO: Implement Compliance Officer Agent using ReACT prompting
+# Compliance Officer Agent - ReACT Implementation
 
 """
 Compliance Officer Agent Module
@@ -8,19 +7,17 @@ This agent generates regulatory-compliant SAR narratives using ReACT prompting.
 It takes risk analysis results and creates structured documentation for 
 FinCEN submission.
 
-YOUR TASKS:
-- Study ReACT (Reasoning + Action) prompting methodology
-- Design system prompt with Reasoning/Action framework
-- Implement narrative generation with word limits
-- Validate regulatory compliance requirements
-- Create proper audit logging and error handling
+Design notes:
+- A ReACT (Reasoning + Action) system prompt separates planning from drafting.
+- Narratives are limited to 120 words, checked in code as well as in the prompt.
+- Output is validated against ComplianceOfficerOutput and every call is audit-logged.
 """
 
 import json
 import re
 import openai
 from datetime import datetime
-from typing import Dict, Any, List
+from typing import Any, Dict, List
 from dotenv import load_dotenv
 
 try:
@@ -45,7 +42,7 @@ class ComplianceOfficerAgent:
     """
     Compliance Officer agent using ReACT prompting framework.
     
-    TODO: Implement agent that:
+    The agent:
     - Uses Reasoning + Action structured prompting
     - Generates regulatory-compliant SAR narratives
     - Enforces word limits and terminology
@@ -53,7 +50,8 @@ class ComplianceOfficerAgent:
     - Validates narrative completeness
     """
     
-    def __init__(self, openai_client, explainability_logger, model="gpt-4o"):
+    def __init__(self, openai_client: openai.OpenAI, explainability_logger: ExplainabilityLogger,
+                 model: str = "gpt-4o") -> None:
         """Initialize the Compliance Officer Agent
         
         Args:
@@ -110,17 +108,24 @@ Respond with ONLY a JSON object, no other text, in this format:
 If the provided data is insufficient to cover a required element, do not fabricate it:
 state what is known and set "completeness_check" to false."""
 
-    def generate_compliance_narrative(self, case_data, risk_analysis) -> 'ComplianceOfficerOutput':
+    def generate_compliance_narrative(self, case_data: CaseData,
+                                      risk_analysis: RiskAnalystOutput) -> ComplianceOfficerOutput:
         """
         Generate regulatory-compliant SAR narrative using ReACT framework.
-        
-        TODO: Implement narrative generation that:
-        - Creates ReACT-structured user prompt
-        - Includes risk analysis findings
-        - Makes OpenAI API call with constraints
-        - Validates narrative word count
-        - Parses and validates JSON response
-        - Logs operations for audit
+
+        Builds a prompt from the case facts and the Risk Analyst's findings, calls the
+        model, enforces the word limit, validates the output and logs the outcome.
+
+        Args:
+            case_data: The validated case being reported
+            risk_analysis: The Risk Analyst's output for this case
+
+        Returns:
+            The validated ComplianceOfficerOutput
+
+        Raises:
+            ValueError: If the response has no parseable JSON or the narrative is too long
+            pydantic.ValidationError: If the output fails the schema
         """
         start_time = datetime.now()
         failure_reason = "Narrative generation failed"
@@ -191,6 +196,7 @@ state what is known and set "completeness_check" to false."""
             raise
 
     def _extract_json_from_response(self, response_content: str) -> str:
+        """Extract the JSON object from an LLM response (plain or inside a ```json fence)"""
         if response_content is None or response_content.strip() == "": #if there's nothing there, show error
             raise ValueError("No JSON content found: LLM response is empty.")
         if "```json" in response_content: #if there's ('''json), return inside the fence
@@ -205,7 +211,7 @@ state what is known and set "completeness_check" to false."""
             json_str = response_content[start:end + 1]
         return json_str 
 
-    def _format_transactions_for_compliance(self, transactions) -> str:
+    def _format_transactions_for_compliance(self, transactions: List[Any]) -> str:
         """Format transactions for the compliance prompt, one line per transaction"""
         lines = []
         for i, txn in enumerate(transactions, 1):
@@ -219,7 +225,8 @@ state what is known and set "completeness_check" to false."""
             lines.append(line)
         return "\n".join(lines)
 
-    def _format_risk_analysis_for_prompt(self, risk_analysis) -> str:
+    def _format_risk_analysis_for_prompt(self, risk_analysis: RiskAnalystOutput) -> str:
+        """Format the Risk Analyst's findings as a prompt section"""
         indicators = "\n".join(f"  - {indicator}" for indicator in risk_analysis.key_indicators) #turning list of indicators into a block of text
         lines = [
             "Risk Analyst Findings:",
@@ -234,12 +241,9 @@ state what is known and set "completeness_check" to false."""
 
     def _validate_narrative_compliance(self, narrative: str) -> Dict[str, Any]:
         """Validate narrative meets regulatory requirements
-        
-        TODO: Implement validation that checks:
-        - Word count (≤120 words)
-        - Required elements present
-        - Appropriate terminology
-        - Regulatory completeness
+
+        Checks the word count (≤120), the presence of required elements (via keyword and
+        pattern heuristics), and that at least one required regulatory term appears.
         """
         max_words = get_regulatory_requirements()["word_limit"]
         word_count = len((narrative or "").split())
@@ -279,11 +283,9 @@ state what is known and set "completeness_check" to false."""
 
 # ===== REACT PROMPTING HELPERS =====
 
-def create_react_framework():
-    """Helper function showing ReACT structure
-    
-    TODO: Study this example and adapt for compliance narratives:
-    
+def create_react_framework() -> Dict[str, List[str]]:
+    """Return the ReACT structure used in the system prompt
+
     **REASONING Phase:**
     1. Review the risk analyst's findings
     2. Assess regulatory narrative requirements
@@ -311,11 +313,8 @@ def create_react_framework():
         ]
     }
 
-def get_regulatory_requirements():
-    """Key regulatory requirements for SAR narratives
-    
-    TODO: Use these requirements in your prompts:
-    """
+def get_regulatory_requirements() -> Dict[str, Any]:
+    """Return the key regulatory requirements for SAR narratives (limits, terms, citations)"""
     return {
         "word_limit": 120,
         "required_elements": [
@@ -340,35 +339,31 @@ def get_regulatory_requirements():
 
 # ===== TESTING UTILITIES =====
 
-def test_narrative_generation():
-    """Test the agent with sample risk analysis
-    
-    TODO: Use this function to test your implementation:
-    - Create sample risk analysis results
-    - Initialize compliance agent
-    - Generate narrative
-    - Validate compliance requirements
+def test_narrative_generation() -> None:
+    """Offline smoke test: the requirements helpers and word-count validator agree
+
+    Makes no API calls. Full agent behaviour is covered by tests/test_compliance_officer.py.
     """
     print("🧪 Testing Compliance Officer Agent")
-    print("TODO: Implement test case")
+    requirements = get_regulatory_requirements()
+    assert requirements["word_limit"] == 120
+    assert validate_word_count("word " * 120, requirements["word_limit"])
+    assert not validate_word_count("word " * 121, requirements["word_limit"])
+    print("✅ Requirements and word-count validation behave as expected")
 
 def validate_word_count(text: str, max_words: int = 120) -> bool:
-    """Helper to validate word count
-    
-    TODO: Use this utility in your validation:
-    """
+    """Return True if ``text`` has at most ``max_words`` words"""
     word_count = len(text.split())
     return word_count <= max_words
 
 if __name__ == "__main__":
     print("✅ Compliance Officer Agent Module")
     print("ReACT prompting for regulatory narrative generation")
-    print("\n📋 TODO Items:")
-    print("• Design ReACT system prompt")
-    print("• Implement generate_compliance_narrative method")
-    print("• Add narrative validation (word count, terminology)")
-    print("• Create regulatory citation system")
-    print("• Test with sample risk analysis results")
+    print("\n📦 Components:")
+    print("• ComplianceOfficerAgent.generate_compliance_narrative: ReACT narrative generation")
+    print("• Narrative validation: word count, required elements, terminology")
+    print("• Regulatory citations and audit logging")
+    print("\n🧪 Run the tests: python -m pytest tests/test_compliance_officer.py")
     print("\n💡 Key Concepts:")
     print("• ReACT: Reasoning + Action structured prompting")
     print("• Regulatory Compliance: BSA/AML requirements")
